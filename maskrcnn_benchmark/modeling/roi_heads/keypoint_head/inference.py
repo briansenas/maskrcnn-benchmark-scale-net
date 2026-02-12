@@ -1,5 +1,10 @@
+import cv2
+import numpy as np
 import torch
 from torch import nn
+
+from maskrcnn_benchmark.structures.bounding_box import BoxList
+from maskrcnn_benchmark.structures.keypoint import PersonKeypoints
 
 
 class KeypointPostProcessor(nn.Module):
@@ -33,8 +38,6 @@ class KeypointPostProcessor(nn.Module):
 
 
 # TODO remove and use only the Keypointer
-import numpy as np
-import cv2
 
 
 def heatmaps_to_keypoints(maps, rois):
@@ -68,12 +71,14 @@ def heatmaps_to_keypoints(maps, rois):
             roi_map_width = int(np.maximum(widths_ceil[i], min_size))
             roi_map_height = int(np.maximum(heights_ceil[i], min_size))
         else:
-            roi_map_width = widths_ceil[i]
-            roi_map_height = heights_ceil[i]
+            roi_map_width = int(widths_ceil[i])
+            roi_map_height = int(heights_ceil[i])
         width_correction = widths[i] / roi_map_width
         height_correction = heights[i] / roi_map_height
         roi_map = cv2.resize(
-            maps[i], (roi_map_width, roi_map_height), interpolation=cv2.INTER_CUBIC
+            maps[i],
+            (roi_map_width, roi_map_height),
+            interpolation=cv2.INTER_CUBIC,
         )
         # Bring back to CHW
         roi_map = np.transpose(roi_map, [2, 0, 1])
@@ -94,10 +99,6 @@ def heatmaps_to_keypoints(maps, rois):
     return np.transpose(xy_preds, [0, 2, 1]), end_scores
 
 
-from maskrcnn_benchmark.structures.bounding_box import BoxList
-from maskrcnn_benchmark.structures.keypoint import PersonKeypoints
-
-
 class Keypointer(object):
     """
     Projects a set of masks in an image on the locations
@@ -114,9 +115,13 @@ class Keypointer(object):
         assert len(boxes) == 1
 
         result, scores = heatmaps_to_keypoints(
-            masks.detach().cpu().numpy(), boxes[0].bbox.cpu().numpy()
+            masks.detach().cpu().numpy(),
+            boxes[0].bbox.cpu().numpy(),
         )
-        return torch.from_numpy(result).to(masks.device), torch.as_tensor(scores, device=masks.device)
+        return torch.from_numpy(result).to(masks.device), torch.as_tensor(
+            scores,
+            device=masks.device,
+        )
 
 
 def make_roi_keypoint_post_processor(cfg):

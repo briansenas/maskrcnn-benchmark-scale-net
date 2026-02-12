@@ -1,14 +1,19 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import cv2
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from torchvision import transforms as T
 from torchvision.transforms import functional as F
-from maskrcnn_benchmark.modeling.detector import build_detection_model
-from maskrcnn_benchmark.utils.checkpoint import DetectronCheckpointer
-from maskrcnn_benchmark.structures.image_list import to_image_list
-from maskrcnn_benchmark.modeling.roi_heads.mask_head.inference import Masker
+
 from maskrcnn_benchmark import layers as L
+from maskrcnn_benchmark.modeling.detector import build_detection_model
+from maskrcnn_benchmark.modeling.roi_heads.mask_head.inference import Masker
+from maskrcnn_benchmark.structures.image_list import to_image_list
+from maskrcnn_benchmark.structures.keypoint import PersonKeypoints
 from maskrcnn_benchmark.utils import cv2_util
+from maskrcnn_benchmark.utils.checkpoint import DetectronCheckpointer
+
 
 class Resize(object):
     def __init__(self, min_size, max_size):
@@ -42,6 +47,8 @@ class Resize(object):
         size = self.get_size(image.size)
         image = F.resize(image, size)
         return image
+
+
 class COCODemo(object):
     # COCO categories for pretty print
     CATEGORIES = [
@@ -135,7 +142,7 @@ class COCODemo(object):
         show_mask_heatmaps=False,
         masks_per_dim=2,
         min_image_size=224,
-        weight_loading = None
+        weight_loading=None,
     ):
         self.cfg = cfg.clone()
         self.model = build_detection_model(cfg)
@@ -147,18 +154,18 @@ class COCODemo(object):
         save_dir = cfg.OUTPUT_DIR
         checkpointer = DetectronCheckpointer(cfg, self.model, save_dir=save_dir)
         _ = checkpointer.load(cfg.MODEL.WEIGHT)
-        
+
         if weight_loading:
-            print('Loading weight from {}.'.format(weight_loading))
+            print("Loading weight from {}.".format(weight_loading))
             _ = checkpointer._load_model(torch.load(weight_loading))
-        
+
         self.transforms = self.build_transform()
 
         mask_threshold = -1 if show_mask_heatmaps else 0.5
         self.masker = Masker(threshold=mask_threshold, padding=1)
 
         # used to make colors for each class
-        self.palette = torch.tensor([2 ** 25 - 1, 2 ** 15 - 1, 2 ** 21 - 1])
+        self.palette = torch.tensor([2**25 - 1, 2**15 - 1, 2**21 - 1])
 
         self.cpu_device = torch.device("cpu")
         self.confidence_threshold = confidence_threshold
@@ -181,7 +188,8 @@ class COCODemo(object):
             to_bgr_transform = T.Lambda(lambda x: x[[2, 1, 0]])
 
         normalize_transform = T.Normalize(
-            mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD
+            mean=cfg.INPUT.PIXEL_MEAN,
+            std=cfg.INPUT.PIXEL_STD,
         )
         min_size = cfg.INPUT.MIN_SIZE_TEST
         max_size = cfg.INPUT.MAX_SIZE_TEST
@@ -192,7 +200,7 @@ class COCODemo(object):
                 T.ToTensor(),
                 to_bgr_transform,
                 normalize_transform,
-            ]
+            ],
         )
         return transform
 
@@ -305,7 +313,11 @@ class COCODemo(object):
             box = box.to(torch.int64)
             top_left, bottom_right = box[:2].tolist(), box[2:].tolist()
             image = cv2.rectangle(
-                image, tuple(top_left), tuple(bottom_right), tuple(color), 1
+                image,
+                tuple(top_left),
+                tuple(bottom_right),
+                tuple(color),
+                1,
             )
 
         return image
@@ -328,7 +340,9 @@ class COCODemo(object):
         for mask, color in zip(masks, colors):
             thresh = mask[0, :, :, None].astype(np.uint8)
             contours, hierarchy = cv2_util.findContours(
-                thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+                thresh,
+                cv2.RETR_TREE,
+                cv2.CHAIN_APPROX_SIMPLE,
             )
             image = cv2.drawContours(image, contours, -1, color, 3)
 
@@ -358,10 +372,11 @@ class COCODemo(object):
         masks = predictions.get_field("mask")
         masks_per_dim = self.masks_per_dim
         masks = L.interpolate(
-            masks.float(), scale_factor=1 / masks_per_dim
+            masks.float(),
+            scale_factor=1 / masks_per_dim,
         ).byte()
         height, width = masks.shape[-2:]
-        max_masks = masks_per_dim ** 2
+        max_masks = masks_per_dim**2
         masks = masks[:max_masks]
         # handle case where we have less detections than max_masks
         if len(masks) < max_masks:
@@ -370,7 +385,8 @@ class COCODemo(object):
             masks = masks_padded
         masks = masks.reshape(masks_per_dim, masks_per_dim, height, width)
         result = torch.zeros(
-            (masks_per_dim * height, masks_per_dim * width), dtype=torch.uint8
+            (masks_per_dim * height, masks_per_dim * width),
+            dtype=torch.uint8,
         )
         for y in range(masks_per_dim):
             start_y = y * height
@@ -401,14 +417,17 @@ class COCODemo(object):
             x, y = box[:2]
             s = template.format(label, score)
             cv2.putText(
-                image, s, (x, y), cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1
+                image,
+                s,
+                (int(x), int(y)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
             )
 
         return image
 
-import numpy as np
-import matplotlib.pyplot as plt
-from maskrcnn_benchmark.structures.keypoint import PersonKeypoints
 
 def vis_keypoints(img, kps, kp_thresh=2, alpha=0.7):
     """Visualizes keypoints (adapted from vis_one_image).
@@ -418,7 +437,7 @@ def vis_keypoints(img, kps, kp_thresh=2, alpha=0.7):
     kp_lines = PersonKeypoints.CONNECTIONS
 
     # Convert from plt 0-1 RGBA colors to 0-255 BGR colors for opencv.
-    cmap = plt.get_cmap('rainbow')
+    cmap = plt.get_cmap("rainbow")
     colors = [cmap(i) for i in np.linspace(0, 1, len(kp_lines) + 2)]
     colors = [(c[2] * 255, c[1] * 255, c[0] * 255) for c in colors]
 
@@ -427,45 +446,74 @@ def vis_keypoints(img, kps, kp_thresh=2, alpha=0.7):
 
     # Draw mid shoulder / mid hip first for better visualization.
     mid_shoulder = (
-        kps[:2, dataset_keypoints.index('right_shoulder')] +
-        kps[:2, dataset_keypoints.index('left_shoulder')]) / 2.0
+        kps[:2, dataset_keypoints.index("right_shoulder")]
+        + kps[:2, dataset_keypoints.index("left_shoulder")]
+    ) / 2.0
     sc_mid_shoulder = np.minimum(
-        kps[2, dataset_keypoints.index('right_shoulder')],
-        kps[2, dataset_keypoints.index('left_shoulder')])
+        kps[2, dataset_keypoints.index("right_shoulder")],
+        kps[2, dataset_keypoints.index("left_shoulder")],
+    )
     mid_hip = (
-        kps[:2, dataset_keypoints.index('right_hip')] +
-        kps[:2, dataset_keypoints.index('left_hip')]) / 2.0
+        kps[:2, dataset_keypoints.index("right_hip")]
+        + kps[:2, dataset_keypoints.index("left_hip")]
+    ) / 2.0
     sc_mid_hip = np.minimum(
-        kps[2, dataset_keypoints.index('right_hip')],
-        kps[2, dataset_keypoints.index('left_hip')])
-    nose_idx = dataset_keypoints.index('nose')
+        kps[2, dataset_keypoints.index("right_hip")],
+        kps[2, dataset_keypoints.index("left_hip")],
+    )
+    nose_idx = dataset_keypoints.index("nose")
     if sc_mid_shoulder > kp_thresh and kps[2, nose_idx] > kp_thresh:
         cv2.line(
-            kp_mask, tuple(mid_shoulder), tuple(kps[:2, nose_idx]),
-            color=colors[len(kp_lines)], thickness=2, lineType=cv2.LINE_AA)
+            kp_mask,
+            tuple(mid_shoulder.astype(int)),
+            tuple(kps[:2, nose_idx].astype(int)),
+            color=colors[len(kp_lines)],
+            thickness=2,
+            lineType=cv2.LINE_AA,
+        )
     if sc_mid_shoulder > kp_thresh and sc_mid_hip > kp_thresh:
         cv2.line(
-            kp_mask, tuple(mid_shoulder), tuple(mid_hip),
-            color=colors[len(kp_lines) + 1], thickness=2, lineType=cv2.LINE_AA)
+            kp_mask,
+            tuple(mid_shoulder.astype(int)),
+            tuple(mid_hip.astype(int)),
+            color=colors[len(kp_lines) + 1],
+            thickness=2,
+            lineType=cv2.LINE_AA,
+        )
 
     # Draw the keypoints.
     for l in range(len(kp_lines)):
         i1 = kp_lines[l][0]
         i2 = kp_lines[l][1]
-        p1 = kps[0, i1], kps[1, i1]
-        p2 = kps[0, i2], kps[1, i2]
+        p1 = int(kps[0, i1]), int(kps[1, i1])
+        p2 = int(kps[0, i2]), int(kps[1, i2])
         if kps[2, i1] > kp_thresh and kps[2, i2] > kp_thresh:
             cv2.line(
-                kp_mask, p1, p2,
-                color=colors[l], thickness=2, lineType=cv2.LINE_AA)
+                kp_mask,
+                p1,
+                p2,
+                color=colors[l],
+                thickness=2,
+                lineType=cv2.LINE_AA,
+            )
         if kps[2, i1] > kp_thresh:
             cv2.circle(
-                kp_mask, p1,
-                radius=3, color=colors[l], thickness=-1, lineType=cv2.LINE_AA)
+                kp_mask,
+                p1,
+                radius=3,
+                color=colors[l],
+                thickness=-1,
+                lineType=cv2.LINE_AA,
+            )
         if kps[2, i2] > kp_thresh:
             cv2.circle(
-                kp_mask, p2,
-                radius=3, color=colors[l], thickness=-1, lineType=cv2.LINE_AA)
+                kp_mask,
+                p2,
+                radius=3,
+                color=colors[l],
+                thickness=-1,
+                lineType=cv2.LINE_AA,
+            )
 
     # Blend the keypoints.
     return cv2.addWeighted(img, 1.0 - alpha, kp_mask, alpha, 0)
